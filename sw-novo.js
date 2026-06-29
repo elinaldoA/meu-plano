@@ -1,4 +1,4 @@
-const CACHE_NAME = 'meu-plano-v7';
+const CACHE_NAME = 'ironfit-v1';
 const urlsToCache = [
   './',
   './index.html',
@@ -11,7 +11,7 @@ self.addEventListener('install', event => {
   event.waitUntil(
     caches.open(CACHE_NAME)
       .then(cache => {
-        console.log('✅ Cache do app aberto');
+        console.log('✅ Cache do IronFit aberto');
         return cache.addAll(urlsToCache);
       })
       .then(() => self.skipWaiting())

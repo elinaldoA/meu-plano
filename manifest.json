@@ -1,7 +1,7 @@
 {
-  "name": "Meu Plano 92kg - Treino e Dieta",
-  "short_name": "Meu Plano",
-  "description": "Treino e dieta personalizados para 92kg",
+  "name": "IronFit - Treino e Dieta",
+  "short_name": "IronFit",
+  "description": "Seu plano de treino e dieta personalizado",
   "start_url": "./index.html",
   "display": "standalone",
   "background_color": "#0e0e12",
