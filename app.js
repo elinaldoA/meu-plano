@@ -563,7 +563,7 @@ function renderTreino() {
             });
 
             body.appendChild(row);
-            renderSetButtons(ex, body);
+            if (isToday) renderSetButtons(ex, body);
         });
 
         // Post-workout
