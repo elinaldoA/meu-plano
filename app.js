@@ -667,11 +667,15 @@ async function loadProfileStats() {
     document.getElementById('profileSince').textContent  =
         'Membro desde ' + since.toLocaleDateString('pt-BR', { month: 'long', year: 'numeric' });
 
-    const peso   = localStorage.getItem('profile_peso')   || '';
-    const altura = localStorage.getItem('profile_altura') || '';
+    // Prefer Supabase user_metadata (cross-device), fallback to localStorage
+    const md     = state.user.user_metadata || {};
+    const peso   = md.peso   || localStorage.getItem('profile_peso')   || '';
+    const altura = md.altura || localStorage.getItem('profile_altura') || '';
+    const meta   = md.meta   || localStorage.getItem('profile_meta')   || 'massa';
+
     document.getElementById('profilePeso').value   = peso;
     document.getElementById('profileAltura').value = altura;
-    document.getElementById('profileMeta').value   = localStorage.getItem('profile_meta') || 'massa';
+    document.getElementById('profileMeta').value   = meta;
     updateImc(parseFloat(peso), parseFloat(altura));
 
     try {
@@ -733,14 +737,23 @@ function updateImc(peso, altura) {
 }
 
 function initProfile() {
-    document.getElementById('saveProfileBtn').addEventListener('click', () => {
+    document.getElementById('saveProfileBtn').addEventListener('click', async () => {
         const peso   = document.getElementById('profilePeso').value;
         const altura = document.getElementById('profileAltura').value;
         const meta   = document.getElementById('profileMeta').value;
+
+        // Salva localmente para leitura instantânea offline
         localStorage.setItem('profile_peso',   peso);
         localStorage.setItem('profile_altura', altura);
         localStorage.setItem('profile_meta',   meta);
         updateImc(parseFloat(peso), parseFloat(altura));
+
+        // Persiste nos metadados do usuário no Supabase (sincroniza entre dispositivos)
+        if (state.user) {
+            const { data, error } = await db.auth.updateUser({ data: { peso, altura, meta } });
+            if (!error && data?.user) state.user = data.user;
+        }
+
         toast('Perfil salvo!');
     });
     document.getElementById('logoutBtnPerfil').addEventListener('click', doLogout);
