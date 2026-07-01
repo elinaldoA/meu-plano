@@ -119,6 +119,91 @@ const dietaData = [
 ];
 
 /* ============================================================
+   AVATAR CORPORAL — mapeamento de grupos musculares
+============================================================ */
+const MUSCLE_MAP = {
+    'Peito':        ['chest'],
+    'Ombro':        ['shoulders'],
+    'Tríceps':      ['triceps'],
+    'Costas':       ['back'],
+    'Bíceps':       ['biceps'],
+    'Pernas':       ['quads', 'calves'],
+    'Quadríceps':   ['quads'],
+    'Superiores':   ['chest', 'shoulders', 'back', 'biceps', 'triceps'],
+    'Força':        [],
+    'Posterior':    ['hamstrings', 'back'],
+    'Glúteos':      ['glutes'],
+    'Cardio Leve':  [],
+    'Recuperação':  [],
+    'Descanso Total': [],
+};
+
+function getMuscleGroupsForDay(day) {
+    const groups = new Set();
+    day.foco.split('/').map(s => s.trim()).forEach(token => {
+        (MUSCLE_MAP[token] || []).forEach(g => groups.add(g));
+    });
+    if (day.pos.length > 0) groups.add('abs');
+    return groups;
+}
+
+const BODY_AVATAR_SVG = `
+<div class="body-avatar__col">
+    <svg viewBox="0 0 120 220" class="body-avatar__svg">
+        <circle cx="60" cy="18" r="14" class="muscle muscle--fixed"/>
+        <rect x="52" y="30" width="16" height="12" class="muscle muscle--fixed"/>
+        <ellipse cx="35" cy="47" rx="14" ry="9" class="muscle" data-muscle="shoulders"/>
+        <ellipse cx="85" cy="47" rx="14" ry="9" class="muscle" data-muscle="shoulders"/>
+        <rect x="38" y="42" width="44" height="32" rx="8" class="muscle" data-muscle="chest"/>
+        <rect x="18" y="50" width="14" height="35" rx="6" class="muscle" data-muscle="biceps"/>
+        <rect x="88" y="50" width="14" height="35" rx="6" class="muscle" data-muscle="biceps"/>
+        <rect x="42" y="76" width="36" height="34" rx="6" class="muscle" data-muscle="abs"/>
+        <rect x="34" y="112" width="22" height="55" rx="10" class="muscle" data-muscle="quads"/>
+        <rect x="64" y="112" width="22" height="55" rx="10" class="muscle" data-muscle="quads"/>
+        <rect x="34" y="170" width="22" height="40" rx="8" class="muscle" data-muscle="calves"/>
+        <rect x="64" y="170" width="22" height="40" rx="8" class="muscle" data-muscle="calves"/>
+    </svg>
+    <span class="body-avatar__label">Frente</span>
+</div>
+<div class="body-avatar__col">
+    <svg viewBox="0 0 120 220" class="body-avatar__svg">
+        <circle cx="60" cy="18" r="14" class="muscle muscle--fixed"/>
+        <rect x="52" y="30" width="16" height="12" class="muscle muscle--fixed"/>
+        <ellipse cx="60" cy="42" rx="30" ry="12" class="muscle" data-muscle="shoulders"/>
+        <rect x="38" y="52" width="44" height="40" rx="10" class="muscle" data-muscle="back"/>
+        <rect x="18" y="50" width="14" height="35" rx="6" class="muscle" data-muscle="triceps"/>
+        <rect x="88" y="50" width="14" height="35" rx="6" class="muscle" data-muscle="triceps"/>
+        <rect x="38" y="96" width="44" height="22" rx="10" class="muscle" data-muscle="glutes"/>
+        <rect x="34" y="120" width="22" height="45" rx="10" class="muscle" data-muscle="hamstrings"/>
+        <rect x="64" y="120" width="22" height="45" rx="10" class="muscle" data-muscle="hamstrings"/>
+        <rect x="34" y="168" width="22" height="42" rx="8" class="muscle" data-muscle="calves"/>
+        <rect x="64" y="168" width="22" height="42" rx="8" class="muscle" data-muscle="calves"/>
+    </svg>
+    <span class="body-avatar__label">Costas</span>
+</div>
+`;
+
+function renderBodyAvatar() {
+    const container = document.getElementById('dashBodyAvatar');
+    if (!container) return;
+
+    if (!container.dataset.built) {
+        container.innerHTML = BODY_AVATAR_SVG;
+        container.dataset.built = '1';
+    }
+
+    const day = treinoData.find(d => d.dia === TODAY_NAME);
+    const activeGroups = day ? getMuscleGroupsForDay(day) : new Set();
+
+    container.querySelectorAll('[data-muscle]').forEach(el => {
+        el.classList.toggle('muscle--active', activeGroups.has(el.dataset.muscle));
+    });
+
+    const titleEl = document.getElementById('dashBodyAvatarFoco');
+    if (titleEl) titleEl.textContent = day ? day.foco : '';
+}
+
+/* ============================================================
    STATE
 ============================================================ */
 const state = {
@@ -281,7 +366,7 @@ async function loadUserData() {
                 localStorage.setItem(`treino_${TODAY_NAME}`, existing.completed);
                 refreshIndicator(TODAY_NAME);
             }
-            await loadExerciseLogs(existing.id);
+            await loadExerciseSets(existing.id);
         } else {
             const { data: created, error: err2 } = await db
                 .from('workouts')
@@ -300,22 +385,6 @@ async function loadUserData() {
         setSyncBadge('error');
         toast('⚠️ Erro ao sincronizar dados');
     }
-}
-
-async function loadExerciseLogs(workoutId) {
-    const { data: logs, error } = await db
-        .from('exercise_logs')
-        .select('exercise_name, carga_sem1')
-        .eq('workout_id', workoutId);
-
-    if (error) { console.error(error); return; }
-
-    logs.forEach(log => {
-        if (!log.carga_sem1) return;
-        const input = findCargaInput(log.exercise_name);
-        if (input) input.value = log.carga_sem1;
-        localStorage.setItem(`carga_${log.exercise_name}`, log.carga_sem1);
-    });
 }
 
 async function createExerciseLogs(workoutId, dayName) {
@@ -337,13 +406,39 @@ async function saveWorkoutStatus(completed) {
     if (error) console.error(error);
 }
 
-async function saveExerciseCarga(exerciseName, carga) {
+async function loadExerciseSets(workoutId) {
+    const { data: sets, error } = await db
+        .from('exercise_sets')
+        .select('exercise_name, set_number, carga, completed')
+        .eq('workout_id', workoutId);
+
+    if (error) { console.error(error); return; }
+
+    sets.forEach(s => {
+        localStorage.setItem(`set_${s.exercise_name}_${s.set_number}_carga`, s.carga ?? '');
+        localStorage.setItem(`set_${s.exercise_name}_${s.set_number}_done`, s.completed);
+
+        const row = findSetRow(s.exercise_name, s.set_number);
+        if (row) {
+            const input = row.querySelector('.set-row__carga');
+            const check = row.querySelector('.set-row__check');
+            if (input && s.carga != null) input.value = s.carga;
+            if (check) setSetRowChecked(check, s.completed);
+        }
+    });
+
+    const day = treinoData.find(d => d.dia === TODAY_NAME);
+    if (day) refreshDayTotal(day);
+}
+
+async function saveSetState(exerciseName, setNumber, patch) {
     if (!state.user || !state.workoutId) return;
     const { error } = await db
-        .from('exercise_logs')
-        .update({ carga_sem1: carga })
-        .eq('workout_id', state.workoutId)
-        .eq('exercise_name', exerciseName);
+        .from('exercise_sets')
+        .upsert(
+            { workout_id: state.workoutId, exercise_name: exerciseName, set_number: setNumber, ...patch },
+            { onConflict: 'workout_id,exercise_name,set_number' }
+        );
     if (error) console.error(error);
 }
 
@@ -427,42 +522,82 @@ function renderTreino() {
         const body = document.createElement('div');
         body.className = `day-card__body${isToday ? ' open' : ''}`;
 
-        // Exercise table
-        body.insertAdjacentHTML('beforeend', `
-            <div class="ex-table__head">
-                <span>Exercício</span><span>Reps</span>
-                <span>Desc.</span><span>Carga (kg)</span>
-            </div>
-        `);
+        // Carga total do dia
+        body.insertAdjacentHTML('beforeend', `<div class="day-card__total" data-total="${day.dia}">Carga total do treino: ${calcDayTotalCarga(day).toLocaleString('pt-BR')} kg</div>`);
 
+        // Exercícios
         day.exercicios.forEach(ex => {
-            const savedCarga = localStorage.getItem(`carga_${ex.nome}`) || '';
-            const row = document.createElement('div');
-            row.className = 'ex-table__row';
-            row.innerHTML = `
-                <span class="ex-name">${ex.nome}</span>
-                <span>${ex.reps}</span>
-                <span>${ex.descanso}</span>
-                <span><input class="carga-input" type="text" placeholder="kg"
-                             data-day="${day.dia}" data-exid="${ex.nome}"
-                             value="${escapeAttr(savedCarga)}" autocomplete="off"></span>
+            const setCount = parseInt(ex.series, 10);
+
+            const block = document.createElement('div');
+            block.className = 'ex-block';
+
+            if (!setCount) {
+                block.innerHTML = `
+                    <div class="ex-block__header">
+                        <span class="ex-name">${ex.nome}</span>
+                        <span class="ex-block__meta">${ex.reps}</span>
+                    </div>
+                `;
+                body.appendChild(block);
+                return;
+            }
+
+            block.innerHTML = `
+                <div class="ex-block__header">
+                    <span class="ex-name">${ex.nome}</span>
+                    <span class="ex-block__meta">${ex.reps} reps · desc. ${ex.descanso}</span>
+                </div>
+                <div class="ex-block__sets"></div>
             `;
 
-            const input = row.querySelector('.carga-input');
-            input.addEventListener('input', (e) => {
-                const val = e.target.value;
-                localStorage.setItem(`carga_${ex.nome}`, val);
-                clearTimeout(state.saveTimers[ex.nome]);
-                state.saveTimers[ex.nome] = setTimeout(async () => {
-                    if (state.user) {
-                        await saveExerciseCarga(ex.nome, val);
-                        input.classList.add('saved');
-                        setTimeout(() => input.classList.remove('saved'), 1200);
-                    }
-                }, 800);
-            });
+            const setsWrap = block.querySelector('.ex-block__sets');
+            for (let n = 1; n <= setCount; n++) {
+                const savedCarga = localStorage.getItem(`set_${ex.nome}_${n}_carga`) || '';
+                const savedDone  = localStorage.getItem(`set_${ex.nome}_${n}_done`) === 'true';
 
-            body.appendChild(row);
+                const row = document.createElement('div');
+                row.className = 'set-row';
+                row.dataset.exname = ex.nome;
+                row.dataset.set = n;
+                row.innerHTML = `
+                    <span class="set-row__label">Série ${n}</span>
+                    <input class="set-row__carga" type="text" inputmode="decimal" placeholder="kg"
+                           value="${escapeAttr(savedCarga)}" autocomplete="off">
+                    <button type="button" class="set-row__check${savedDone ? ' set-row__check--done' : ''}"
+                            aria-pressed="${savedDone}">✓</button>
+                `;
+
+                const input = row.querySelector('.set-row__carga');
+                const check = row.querySelector('.set-row__check');
+                const saveKey = `${ex.nome}_${n}`;
+
+                input.addEventListener('input', (e) => {
+                    const val = e.target.value;
+                    localStorage.setItem(`set_${ex.nome}_${n}_carga`, val);
+                    refreshDayTotal(day);
+                    clearTimeout(state.saveTimers[saveKey]);
+                    state.saveTimers[saveKey] = setTimeout(async () => {
+                        if (state.user) {
+                            await saveSetState(ex.nome, n, { carga: val === '' ? null : parseFloat(val) });
+                            input.classList.add('saved');
+                            setTimeout(() => input.classList.remove('saved'), 1200);
+                        }
+                    }, 800);
+                });
+
+                check.addEventListener('click', async () => {
+                    const done = !check.classList.contains('set-row__check--done');
+                    setSetRowChecked(check, done);
+                    localStorage.setItem(`set_${ex.nome}_${n}_done`, done);
+                    refreshDayTotal(day);
+                    if (state.user) await saveSetState(ex.nome, n, { completed: done });
+                });
+
+                setsWrap.appendChild(row);
+            }
+
+            body.appendChild(block);
         });
 
         // Post-workout
@@ -665,7 +800,7 @@ function initResetBtn() {
     document.getElementById('resetTreinos').addEventListener('click', () => {
         if (!confirm('Limpar todos os checks e cargas salvas?')) return;
         Object.keys(localStorage).forEach(k => {
-            if (k.startsWith('treino_') || k.startsWith('carga_')) localStorage.removeItem(k);
+            if (k.startsWith('treino_') || k.startsWith('carga_') || k.startsWith('set_')) localStorage.removeItem(k);
         });
         renderTreino();
         updateWeekProgress();
@@ -692,9 +827,38 @@ function findCheckbox(dayName) {
     return document.querySelector(`.day-card__check[data-day="${dayName}"]`);
 }
 
-function findCargaInput(exName) {
-    return Array.from(document.querySelectorAll('.carga-input'))
-        .find(el => el.dataset.exid === exName) || null;
+function findSetRow(exName, setNumber) {
+    return document.querySelector(`.set-row[data-exname="${cssEscape(exName)}"][data-set="${setNumber}"]`);
+}
+
+function cssEscape(str) {
+    return String(str).replace(/["\\]/g, '\\$&');
+}
+
+function setSetRowChecked(checkBtn, checked) {
+    checkBtn.classList.toggle('set-row__check--done', checked);
+    checkBtn.setAttribute('aria-pressed', String(checked));
+}
+
+function calcDayTotalCarga(day) {
+    let total = 0;
+    day.exercicios.forEach(ex => {
+        const count = parseInt(ex.series, 10);
+        if (!count) return;
+        for (let n = 1; n <= count; n++) {
+            const done  = localStorage.getItem(`set_${ex.nome}_${n}_done`) === 'true';
+            const carga = parseFloat(localStorage.getItem(`set_${ex.nome}_${n}_carga`));
+            if (done && !isNaN(carga)) total += carga;
+        }
+    });
+    return total;
+}
+
+function refreshDayTotal(day) {
+    const el = document.querySelector(`[data-total="${day.dia}"]`);
+    if (!el) return;
+    const total = calcDayTotalCarga(day);
+    el.textContent = `Carga total do treino: ${total.toLocaleString('pt-BR')} kg`;
 }
 
 function refreshIndicator(dia) {
@@ -710,6 +874,8 @@ function escapeAttr(str) {
    DASHBOARD — Evolução
 ============================================================ */
 async function loadDashboard() {
+    renderBodyAvatar();
+
     if (!state.user || dashLoading) return;
     dashLoading = true;
 
@@ -732,22 +898,23 @@ async function loadDashboard() {
 
         const ids = (workouts || []).map(w => w.id);
         if (ids.length > 0) {
-            const { data: logs, error: lErr } = await db
-                .from('exercise_logs')
-                .select('exercise_name, carga_sem1, workout_id')
+            const { data: sets, error: sErr } = await db
+                .from('exercise_sets')
+                .select('exercise_name, carga, workout_id')
                 .in('workout_id', ids)
-                .not('carga_sem1', 'is', null)
-                .neq('carga_sem1', '');
-            if (lErr) throw lErr;
+                .eq('completed', true)
+                .not('carga', 'is', null);
+            if (sErr) throw sErr;
 
             const dateMap = Object.fromEntries((workouts || []).map(w => [w.id, w.workout_date]));
-            dashLogs = (logs || []).map(l => ({ ...l, workout_date: dateMap[l.workout_id] }));
+            dashLogs = (sets || []).map(s => ({ ...s, workout_date: dateMap[s.workout_id] }));
         } else {
             dashLogs = [];
         }
 
         renderPRs(dashLogs);
         populateExerciseSelect(dashLogs);
+        renderVolumeChart(dashLogs);
 
     } catch (err) {
         console.error('loadDashboard:', err);
@@ -842,7 +1009,7 @@ function renderPRs(logs) {
 
     const prMap = {};
     logs.forEach(log => {
-        const val = parseFloat(log.carga_sem1);
+        const val = parseFloat(log.carga);
         if (isNaN(val)) return;
         if (!prMap[log.exercise_name] || val > prMap[log.exercise_name].val) {
             prMap[log.exercise_name] = { val, date: log.workout_date };
@@ -873,7 +1040,7 @@ function populateExerciseSelect(logs) {
     const select = document.getElementById('dashExerciseSelect');
     if (!select) return;
 
-    const exercises = [...new Set(logs.filter(l => !isNaN(parseFloat(l.carga_sem1))).map(l => l.exercise_name))].sort();
+    const exercises = [...new Set(logs.filter(l => !isNaN(parseFloat(l.carga))).map(l => l.exercise_name))].sort();
     const prev = select.value;
 
     select.innerHTML = '<option value="">Selecione um exercício</option>' +
@@ -889,29 +1056,64 @@ function populateExerciseSelect(logs) {
 }
 
 function renderLoadChart(exerciseName, logs) {
-    const svg   = document.getElementById('dashLineChart');
-    const empty = document.getElementById('dashLineEmpty');
-    if (!svg) return;
-
     const pts = logs
-        .filter(l => l.exercise_name === exerciseName && !isNaN(parseFloat(l.carga_sem1)))
-        .sort((a, b) => a.workout_date.localeCompare(b.workout_date));
+        .filter(l => l.exercise_name === exerciseName && !isNaN(parseFloat(l.carga)))
+        .sort((a, b) => a.workout_date.localeCompare(b.workout_date))
+        .map(l => ({ value: parseFloat(l.carga), label: fmtDate(l.workout_date) }));
+
+    drawLineChart('dashLineChart', 'dashLineEmpty', pts, {
+        singleMsg: v => `1 registro: ${v}kg — treine mais vezes para ver a evolução`,
+        emptyMsg: 'Nenhum registro para este exercício',
+        valueSuffix: 'kg',
+    });
+}
+
+function clearLoadChart() {
+    drawLineChart('dashLineChart', 'dashLineEmpty', [], {
+        emptyMsg: 'Selecione um exercício com carga registrada',
+    });
+}
+
+function renderVolumeChart(logs) {
+    const totals = {};
+    logs.forEach(l => {
+        const val = parseFloat(l.carga);
+        if (isNaN(val)) return;
+        totals[l.workout_date] = (totals[l.workout_date] || 0) + val;
+    });
+
+    const pts = Object.keys(totals).sort()
+        .map(date => ({ value: totals[date], label: fmtDate(date) }));
+
+    drawLineChart('dashVolumeChart', 'dashVolumeEmpty', pts, {
+        singleMsg: v => `1 treino registrado: ${v}kg — treine mais vezes para ver a evolução`,
+        emptyMsg: 'Nenhum volume registrado ainda. Marque séries como concluídas na aba Treino.',
+        valueSuffix: 'kg',
+    });
+}
+
+function drawLineChart(svgId, emptyId, pts, opts = {}) {
+    const svg   = document.getElementById(svgId);
+    const empty = document.getElementById(emptyId);
+    if (!svg) return;
 
     if (pts.length < 2) {
         svg.innerHTML = '';
-        empty.style.display = 'block';
-        empty.textContent = pts.length === 1
-            ? `1 registro: ${parseFloat(pts[0].carga_sem1)}kg — treine mais vezes para ver a evolução`
-            : 'Nenhum registro para este exercício';
+        if (empty) {
+            empty.style.display = 'block';
+            empty.textContent = pts.length === 1 && opts.singleMsg
+                ? opts.singleMsg(pts[0].value)
+                : (opts.emptyMsg || 'Nenhum registro disponível');
+        }
         return;
     }
 
-    empty.style.display = 'none';
+    if (empty) empty.style.display = 'none';
 
     const W = 300, H = 120, pX = 12, pY = 18, pB = 22;
     const cW = W - pX * 2, cH = H - pY - pB;
-    const values = pts.map(p => parseFloat(p.carga_sem1));
-    const labels = pts.map(p => fmtDate(p.workout_date));
+    const values = pts.map(p => p.value);
+    const labels = pts.map(p => p.label);
     const minV = Math.min(...values), maxV = Math.max(...values);
     const rangeV = maxV - minV || 1;
 
@@ -935,6 +1137,7 @@ function renderLoadChart(exerciseName, logs) {
 
     const maxI = values.indexOf(maxV);
     const { x: mX, y: mY } = toXY(maxI);
+    const suffix = opts.valueSuffix || '';
 
     const edgeLabels = [0, values.length - 1].map(i => {
         const { x } = toXY(i);
@@ -944,26 +1147,19 @@ function renderLoadChart(exerciseName, logs) {
 
     svg.innerHTML = `
         <defs>
-            <linearGradient id="ag" x1="0" y1="0" x2="0" y2="1">
+            <linearGradient id="ag-${svgId}" x1="0" y1="0" x2="0" y2="1">
                 <stop offset="0%" stop-color="var(--primary)" stop-opacity="0.3"/>
                 <stop offset="100%" stop-color="var(--primary)" stop-opacity="0.01"/>
             </linearGradient>
         </defs>
-        <polygon points="${areaPoints.join(' ')}" fill="url(#ag)"/>
+        <polygon points="${areaPoints.join(' ')}" fill="url(#ag-${svgId})"/>
         <polyline points="${points.join(' ')}" fill="none" stroke="var(--primary)" stroke-width="2.2"
                   stroke-linejoin="round" stroke-linecap="round"/>
         ${circles}
         ${edgeLabels}
         <text x="${mX.toFixed(1)}" y="${(mY - 8).toFixed(1)}" text-anchor="middle"
-              font-size="9.5" font-weight="bold" fill="var(--primary)">${maxV}kg</text>
+              font-size="9.5" font-weight="bold" fill="var(--primary)">${maxV}${suffix}</text>
     `;
-}
-
-function clearLoadChart() {
-    const svg = document.getElementById('dashLineChart');
-    const empty = document.getElementById('dashLineEmpty');
-    if (svg)   svg.innerHTML = '';
-    if (empty) { empty.style.display = 'block'; empty.textContent = 'Selecione um exercício com carga registrada'; }
 }
 
 function fmtDate(dateStr) {

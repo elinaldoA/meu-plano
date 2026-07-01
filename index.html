@@ -92,6 +92,21 @@
             <section id="page-dash" class="page">
 
                 <div class="dash-card">
+                    <div class="dash-card__title">Grupos trabalhados hoje</div>
+                    <div class="dash-card__subtitle" id="dashBodyAvatarFoco">–</div>
+                    <div class="body-avatar" id="dashBodyAvatar"></div>
+                </div>
+
+                <div class="dash-card">
+                    <div class="dash-card__title">Volume total por treino</div>
+                    <p class="dash-card__subtitle">Soma das cargas de todas as séries concluídas em cada treino</p>
+                    <div class="line-chart-wrap">
+                        <svg id="dashVolumeChart" class="line-chart" viewBox="0 0 300 120"></svg>
+                        <p class="dash-empty" id="dashVolumeEmpty">Marque séries como concluídas na aba Treino para ver a evolução</p>
+                    </div>
+                </div>
+
+                <div class="dash-card">
                     <div class="dash-card__title">Últimos 35 dias</div>
                     <div class="heatmap-wrap">
                         <div class="heatmap-days">
