@@ -1,6 +1,7 @@
 import { createContext, useCallback, useContext, useEffect, useState } from 'react';
 import { db } from '../lib/supabase';
-import { treinoData, TODAY_NAME, TODAY_DATE } from '../data/treinoData';
+import { treinoData } from '../data/treinoData';
+import { getDateForWeekday } from '../lib/utils';
 import { useAuth } from './AuthContext';
 import { useToast } from './ToastContext';
 
@@ -17,10 +18,32 @@ async function createExerciseLogs(workoutId, dayName) {
   if (error) console.error('createExerciseLogs:', error);
 }
 
+async function ensureWorkoutId(userId, dayName) {
+  const date = getDateForWeekday(dayName);
+  const { data: existing, error } = await db
+    .from('workouts')
+    .select('id, completed')
+    .eq('user_id', userId)
+    .eq('workout_date', date)
+    .maybeSingle();
+  if (error) throw error;
+
+  if (existing) return existing.id;
+
+  const { data: created, error: insErr } = await db
+    .from('workouts')
+    .insert({ user_id: userId, workout_date: date, day_of_week: dayName, completed: false })
+    .select()
+    .single();
+  if (insErr) throw insErr;
+  await createExerciseLogs(created.id, dayName);
+  return created.id;
+}
+
 export function WorkoutProvider({ children }) {
   const { user } = useAuth();
   const toast = useToast();
-  const [workoutId, setWorkoutId] = useState(null);
+  const [workoutIds, setWorkoutIds] = useState({});
   const [syncStatus, setSyncStatus] = useState('ok');
   const [dataVersion, setDataVersion] = useState(0);
 
@@ -28,40 +51,36 @@ export function WorkoutProvider({ children }) {
     if (!user) return;
     setSyncStatus('loading');
     try {
-      const { data: existing, error } = await db
-        .from('workouts')
-        .select('*')
-        .eq('user_id', user.id)
-        .eq('workout_date', TODAY_DATE)
-        .maybeSingle();
-      if (error) throw error;
+      const entries = await Promise.all(treinoData.map(async (day) => {
+        const wId = await ensureWorkoutId(user.id, day.dia);
 
-      let wId;
-      if (existing) {
-        wId = existing.id;
-        localStorage.setItem(`treino_${TODAY_NAME}`, existing.completed);
+        const { data: w, error: wErr } = await db
+          .from('workouts')
+          .select('completed')
+          .eq('id', wId)
+          .single();
+        if (wErr) throw wErr;
 
         const { data: sets, error: sErr } = await db
           .from('exercise_sets')
           .select('exercise_name, set_number, carga, completed')
           .eq('workout_id', wId);
         if (sErr) throw sErr;
+
+        return { dayName: day.dia, wId, completed: w.completed, sets };
+      }));
+
+      const ids = {};
+      entries.forEach(({ dayName, wId, completed, sets }) => {
+        ids[dayName] = wId;
+        localStorage.setItem(`treino_${dayName}`, completed);
         sets.forEach(s => {
           localStorage.setItem(`set_${s.exercise_name}_${s.set_number}_carga`, s.carga ?? '');
           localStorage.setItem(`set_${s.exercise_name}_${s.set_number}_done`, s.completed);
         });
-      } else {
-        const { data: created, error: err2 } = await db
-          .from('workouts')
-          .insert({ user_id: user.id, workout_date: TODAY_DATE, day_of_week: TODAY_NAME, completed: false })
-          .select()
-          .single();
-        if (err2) throw err2;
-        wId = created.id;
-        await createExerciseLogs(wId, TODAY_NAME);
-      }
+      });
 
-      setWorkoutId(wId);
+      setWorkoutIds(ids);
       setSyncStatus('ok');
       setDataVersion(v => v + 1);
     } catch (err) {
@@ -73,25 +92,37 @@ export function WorkoutProvider({ children }) {
 
   useEffect(() => {
     if (user) loadUserData();
-    else setWorkoutId(null);
+    else setWorkoutIds({});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [user]);
 
-  async function saveWorkoutStatus(completed) {
-    if (!user || !workoutId) return;
-    const { error } = await db.from('workouts').update({ completed }).eq('id', workoutId);
-    if (error) console.error(error);
+  async function saveWorkoutStatus(dayName, completed) {
+    if (!user) return;
+    try {
+      const wId = workoutIds[dayName] || await ensureWorkoutId(user.id, dayName);
+      if (!workoutIds[dayName]) setWorkoutIds(ids => ({ ...ids, [dayName]: wId }));
+      const { error } = await db.from('workouts').update({ completed }).eq('id', wId);
+      if (error) throw error;
+    } catch (err) {
+      console.error('saveWorkoutStatus:', err);
+    }
   }
 
-  async function saveSetState(exerciseName, setNumber, patch) {
-    if (!user || !workoutId) return;
-    const { error } = await db
-      .from('exercise_sets')
-      .upsert(
-        { workout_id: workoutId, exercise_name: exerciseName, set_number: setNumber, ...patch },
-        { onConflict: 'workout_id,exercise_name,set_number' }
-      );
-    if (error) console.error(error);
+  async function saveSetState(dayName, exerciseName, setNumber, patch) {
+    if (!user) return;
+    try {
+      const wId = workoutIds[dayName] || await ensureWorkoutId(user.id, dayName);
+      if (!workoutIds[dayName]) setWorkoutIds(ids => ({ ...ids, [dayName]: wId }));
+      const { error } = await db
+        .from('exercise_sets')
+        .upsert(
+          { workout_id: wId, exercise_name: exerciseName, set_number: setNumber, ...patch },
+          { onConflict: 'workout_id,exercise_name,set_number' }
+        );
+      if (error) throw error;
+    } catch (err) {
+      console.error('saveSetState:', err);
+    }
   }
 
   async function syncNow() {
@@ -100,7 +131,7 @@ export function WorkoutProvider({ children }) {
   }
 
   return (
-    <WorkoutContext.Provider value={{ workoutId, syncStatus, dataVersion, saveWorkoutStatus, saveSetState, syncNow }}>
+    <WorkoutContext.Provider value={{ syncStatus, dataVersion, saveWorkoutStatus, saveSetState, syncNow }}>
       {children}
     </WorkoutContext.Provider>
   );

@@ -3,6 +3,9 @@ import { treinoData, TODAY_NAME } from '../data/treinoData';
 import { useAuth } from '../context/AuthContext';
 import { useWorkout } from '../context/WorkoutContext';
 import { useToast } from '../context/ToastContext';
+import { parseRestSeconds, getDateForWeekday } from '../lib/utils';
+import { db } from '../lib/supabase';
+import RestTimer from '../components/RestTimer';
 
 function calcDayTotalCarga(day) {
   let total = 0;
@@ -18,7 +21,7 @@ function calcDayTotalCarga(day) {
   return total;
 }
 
-function SetRow({ ex, n, day, bump }) {
+function SetRow({ ex, n, day, bump, onRestStart }) {
   const { user } = useAuth();
   const { saveSetState } = useWorkout();
   const [carga, setCarga] = useState(() => localStorage.getItem(`set_${ex.nome}_${n}_carga`) || '');
@@ -34,7 +37,7 @@ function SetRow({ ex, n, day, bump }) {
     clearTimeout(saveTimer.current);
     saveTimer.current = setTimeout(async () => {
       if (user) {
-        await saveSetState(ex.nome, n, { carga: val === '' ? null : parseFloat(val) });
+        await saveSetState(day.dia, ex.nome, n, { carga: val === '' ? null : parseFloat(val) });
         setSaved(true);
         setTimeout(() => setSaved(false), 1200);
       }
@@ -46,7 +49,11 @@ function SetRow({ ex, n, day, bump }) {
     setDone(next);
     localStorage.setItem(`set_${ex.nome}_${n}_done`, next);
     bump();
-    if (user) await saveSetState(ex.nome, n, { completed: next });
+    if (next) {
+      const restSeconds = parseRestSeconds(ex.descanso);
+      if (restSeconds > 0) onRestStart(ex.nome, restSeconds);
+    }
+    if (user) await saveSetState(day.dia, ex.nome, n, { completed: next });
   }
 
   return (
@@ -67,12 +74,36 @@ function SetRow({ ex, n, day, bump }) {
   );
 }
 
-function DayCard({ day, isToday, bump }) {
+function allSetsDone(ex, setCount) {
+  for (let n = 1; n <= setCount; n++) {
+    if (localStorage.getItem(`set_${ex.nome}_${n}_done`) !== 'true') return false;
+  }
+  return true;
+}
+
+function DayCard({ day, isToday, bump, onRestStart }) {
   const { user } = useAuth();
-  const { saveWorkoutStatus } = useWorkout();
+  const { saveWorkoutStatus, saveSetState } = useWorkout();
   const toast = useToast();
   const [open, setOpen] = useState(isToday);
   const [checked, setChecked] = useState(() => localStorage.getItem(`treino_${day.dia}`) === 'true');
+  const [markVersions, setMarkVersions] = useState({});
+
+  async function toggleAllSets(ex, setCount) {
+    const next = !allSetsDone(ex, setCount);
+    for (let n = 1; n <= setCount; n++) {
+      localStorage.setItem(`set_${ex.nome}_${n}_done`, next);
+    }
+    setMarkVersions(v => ({ ...v, [ex.nome]: (v[ex.nome] || 0) + 1 }));
+    bump();
+    toast(next ? '✅ Todas as séries marcadas!' : 'Séries desmarcadas');
+    if (user) {
+      await Promise.all(
+        Array.from({ length: setCount }, (_, i) => i + 1)
+          .map(n => saveSetState(day.dia, ex.nome, n, { completed: next }))
+      );
+    }
+  }
 
   async function handleCheckbox(e) {
     e.stopPropagation();
@@ -81,7 +112,7 @@ function DayCard({ day, isToday, bump }) {
     localStorage.setItem(`treino_${day.dia}`, next);
     bump();
     toast(next ? '✅ Treino marcado!' : 'Treino desmarcado');
-    if (user && isToday) await saveWorkoutStatus(next);
+    if (user) await saveWorkoutStatus(day.dia, next);
   }
 
   return (
@@ -122,15 +153,26 @@ function DayCard({ day, isToday, bump }) {
               </div>
             );
           }
+          const version = markVersions[ex.nome] || 0;
+          const allDone = allSetsDone(ex, setCount);
           return (
             <div className="ex-block" key={ex.nome}>
               <div className="ex-block__header">
-                <span className="ex-name">{ex.nome}</span>
-                <span className="ex-block__meta">{ex.reps} reps · desc. {ex.descanso}</span>
+                <div className="ex-block__titles">
+                  <span className="ex-name">{ex.nome}</span>
+                  <span className="ex-block__meta">{ex.reps} reps · desc. {ex.descanso}</span>
+                </div>
+                <button
+                  type="button"
+                  className={`ex-block__mark-all${allDone ? ' ex-block__mark-all--done' : ''}`}
+                  onClick={() => toggleAllSets(ex, setCount)}
+                >
+                  {allDone ? '✓ Todas' : 'Marcar todas'}
+                </button>
               </div>
               <div className="ex-block__sets">
                 {Array.from({ length: setCount }, (_, i) => i + 1).map(n => (
-                  <SetRow key={n} ex={ex} n={n} day={day} bump={bump} />
+                  <SetRow key={`${n}-${version}`} ex={ex} n={n} day={day} bump={bump} onRestStart={onRestStart} />
                 ))}
               </div>
             </div>
@@ -155,21 +197,38 @@ function DayCard({ day, isToday, bump }) {
 
 export default function TreinoPage() {
   const { user } = useAuth();
-  const { dataVersion, syncNow } = useWorkout();
+  const { dataVersion, syncStatus, syncNow } = useWorkout();
+  const loading = syncStatus === 'loading';
   const [tick, setTick] = useState(0);
   const bump = () => setTick(t => t + 1);
+  const [restSession, setRestSession] = useState(null);
+  const restKey = useRef(0);
+
+  function handleRestStart(label, seconds) {
+    restKey.current += 1;
+    setRestSession({ key: restKey.current, label, seconds });
+  }
 
   const workDays = treinoData.filter(d => d.dia !== 'Sábado' && d.dia !== 'Domingo');
   const done = workDays.filter(d => localStorage.getItem(`treino_${d.dia}`) === 'true').length;
   const total = workDays.length;
 
-  function handleReset() {
+  async function handleReset() {
     if (!window.confirm('Limpar todos os checks e cargas salvas?')) return;
     Object.keys(localStorage).forEach(k => {
       if (k.startsWith('treino_') || k.startsWith('carga_') || k.startsWith('set_')) localStorage.removeItem(k);
     });
     bump();
-    if (user) syncNow();
+    if (user) {
+      try {
+        const dates = treinoData.map(d => getDateForWeekday(d.dia));
+        const { error } = await db.from('workouts').delete().eq('user_id', user.id).in('workout_date', dates);
+        if (error) throw error;
+        await syncNow();
+      } catch (err) {
+        console.error('resetWorkouts:', err);
+      }
+    }
   }
 
   return (
@@ -184,19 +243,24 @@ export default function TreinoPage() {
         </div>
       </div>
       <div className="toolbar">
-        <p className="toolbar__hint">Marque os treinos · salva automático</p>
-        <button className="btn btn--ghost btn--sm" onClick={handleReset}>Limpar</button>
+        <p className="toolbar__hint">
+          {loading ? 'Carregando dados salvos…' : 'Marque os treinos · salva automático'}
+        </p>
+        <button className="btn btn--ghost btn--sm" onClick={handleReset} disabled={loading}>Limpar</button>
       </div>
       <div id="treinoContainer">
-        <div className="accordion" key={dataVersion}>
+        <div className={`accordion${loading ? ' accordion--loading' : ''}`} key={dataVersion}>
           {treinoData.map(day => (
-            <DayCard key={day.dia} day={day} isToday={day.dia === TODAY_NAME} bump={bump} />
+            <DayCard key={day.dia} day={day} isToday={day.dia === TODAY_NAME} bump={bump} onRestStart={handleRestStart} />
           ))}
         </div>
       </div>
       <footer className="footer">
         <strong>Progressão:</strong> aumente cargas toda semana &nbsp;·&nbsp; <strong>Deload</strong> na semana 6
       </footer>
+      {restSession && (
+        <RestTimer session={restSession} onClose={() => setRestSession(null)} />
+      )}
     </section>
   );
 }

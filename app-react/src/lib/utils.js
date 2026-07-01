@@ -1,24 +1,56 @@
-import { TODAY_DATE } from '../data/treinoData';
+import { TODAY_DATE, DAY_NAMES } from '../data/treinoData';
+
+// Parses a "YYYY-MM-DD" string as a local date at noon, avoiding the UTC
+// midnight parsing of `new Date(str)` shifting the day in negative-offset timezones.
+export function parseLocalDate(dateStr) {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  return new Date(y, m - 1, d, 12);
+}
+
+export function toDateStr(d) {
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${y}-${m}-${day}`;
+}
 
 export function fmtDate(dateStr) {
   const d = new Date(dateStr + 'T12:00:00');
   return d.toLocaleDateString('pt-BR', { day: '2-digit', month: '2-digit' });
 }
 
+// Returns the "YYYY-MM-DD" date of `dayName` within the calendar week (Sun-Sat) containing today.
+export function getDateForWeekday(dayName) {
+  const idx = DAY_NAMES.indexOf(dayName);
+  const today = parseLocalDate(TODAY_DATE);
+  const d = new Date(today);
+  d.setDate(today.getDate() + (idx - today.getDay()));
+  return toDateStr(d);
+}
+
 export function getWeekStart() {
   const now = new Date();
   const day = now.getDay();
   const diff = now.getDate() - day + (day === 0 ? -6 : 1);
-  return new Date(now.getFullYear(), now.getMonth(), diff).toISOString().split('T')[0];
+  return toDateStr(new Date(now.getFullYear(), now.getMonth(), diff));
+}
+
+export function parseRestSeconds(descanso) {
+  if (!descanso) return 0;
+  const min = descanso.match(/(\d+)\s*min/);
+  if (min) return parseInt(min[1], 10) * 60;
+  const sec = descanso.match(/(\d+)\s*s/);
+  if (sec) return parseInt(sec[1], 10);
+  return 0;
 }
 
 export function calcStreak(dates) {
   if (!dates.length) return 0;
   const unique = [...new Set(dates)].sort().reverse();
   let streak = 0;
-  let prev = new Date(TODAY_DATE);
+  let prev = parseLocalDate(TODAY_DATE);
   for (const d of unique) {
-    const curr = new Date(d);
+    const curr = parseLocalDate(d);
     const diff = Math.round((prev - curr) / 86400000);
     if (diff <= 1) { streak++; prev = curr; }
     else break;

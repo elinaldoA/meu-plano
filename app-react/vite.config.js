@@ -8,7 +8,7 @@ export default defineConfig({
     react(),
     VitePWA({
       registerType: 'prompt',
-      includeAssets: ['icon.svg'],
+      includeAssets: ['icon.svg', 'favicon.svg', 'favicon.ico'],
       manifest: {
         name: 'IronFit - Treino e Dieta',
         short_name: 'IronFit',

@@ -43,8 +43,28 @@ export function AuthProvider({ children }) {
     return { error };
   }
 
+  async function updateEmail(email) {
+    const { error } = await db.auth.updateUser({ email });
+    return { error: error?.message };
+  }
+
+  async function updatePassword(password) {
+    if (password.length < 6) return { error: 'Senha: mínimo 6 caracteres.' };
+    const { error } = await db.auth.updateUser({ password });
+    return { error: error?.message };
+  }
+
+  async function deleteAccount() {
+    if (!user) return { error: 'Não autenticado.' };
+    const { error } = await db.from('workouts').delete().eq('user_id', user.id);
+    if (error) return { error: error.message };
+    await db.auth.signOut();
+    setUser(null);
+    return {};
+  }
+
   return (
-    <AuthContext.Provider value={{ user, authLoading, login, signup, logout, updateProfile }}>
+    <AuthContext.Provider value={{ user, authLoading, login, signup, logout, updateProfile, updateEmail, updatePassword, deleteAccount }}>
       {children}
     </AuthContext.Provider>
   );

@@ -1,5 +1,7 @@
+import { useId } from 'react';
+
 export default function LineChart({ points, emptyMsg, singleMsg, valueSuffix = '' }) {
-  const svgId = 'chart';
+  const svgId = useId();
 
   if (points.length < 2) {
     const msg = points.length === 1 && singleMsg ? singleMsg(points[0].value) : (emptyMsg || 'Nenhum registro disponível');

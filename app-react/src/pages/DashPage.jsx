@@ -3,15 +3,19 @@ import { db } from '../lib/supabase';
 import { treinoData, TODAY_NAME, TODAY_DATE, getMuscleGroupsForDay } from '../data/treinoData';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { fmtDate } from '../lib/utils';
+import { fmtDate, parseLocalDate, toDateStr } from '../lib/utils';
 import BodyAvatar from '../components/BodyAvatar';
 import LineChart from '../components/LineChart';
+
+function Skeleton({ height = 120 }) {
+  return <div className="skeleton" style={{ height }} />;
+}
 
 function Heatmap({ workouts }) {
   const dateMap = {};
   workouts.forEach(w => { dateMap[w.workout_date] = w.completed ? 'done' : 'miss'; });
 
-  const today = new Date(TODAY_DATE);
+  const today = parseLocalDate(TODAY_DATE);
   const todayDow = today.getDay();
   const currentMonday = new Date(today);
   currentMonday.setDate(today.getDate() - (todayDow === 0 ? 6 : todayDow - 1));
@@ -22,7 +26,7 @@ function Heatmap({ workouts }) {
   for (let i = 0; i < 35; i++) {
     const d = new Date(startMonday);
     d.setDate(startMonday.getDate() + i);
-    const dateStr = d.toISOString().split('T')[0];
+    const dateStr = toDateStr(d);
     const isFuture = d > today;
     const isWeekend = d.getDay() === 0 || d.getDay() === 6;
 
@@ -45,7 +49,7 @@ function Heatmap({ workouts }) {
 }
 
 function WeeklyBars({ workouts }) {
-  const today = new Date(TODAY_DATE);
+  const today = parseLocalDate(TODAY_DATE);
   const todayDow = today.getDay();
   const currentMonday = new Date(today);
   currentMonday.setDate(today.getDate() - (todayDow === 0 ? 6 : todayDow - 1));
@@ -56,8 +60,8 @@ function WeeklyBars({ workouts }) {
     mon.setDate(currentMonday.getDate() - w * 7);
     const sun = new Date(mon);
     sun.setDate(mon.getDate() + 6);
-    const mStr = mon.toISOString().split('T')[0];
-    const sStr = sun.toISOString().split('T')[0];
+    const mStr = toDateStr(mon);
+    const sStr = toDateStr(sun);
     const label = w === 0 ? 'Esta' : w === 1 ? 'Ant.' :
       `${String(mon.getDate()).padStart(2, '0')}/${String(mon.getMonth() + 1).padStart(2, '0')}`;
     buckets.push({ mStr, sStr, label, done: 0 });
@@ -120,11 +124,14 @@ export default function DashPage({ active }) {
   const toast = useToast();
   const [workouts, setWorkouts] = useState([]);
   const [logs, setLogs] = useState([]);
+  const [allTimeLogs, setAllTimeLogs] = useState([]);
   const [selectedExercise, setSelectedExercise] = useState('');
   const [loading, setLoading] = useState(false);
+  const [loadingPR, setLoadingPR] = useState(false);
 
   const day = treinoData.find(d => d.dia === TODAY_NAME);
-  const activeGroups = day ? getMuscleGroupsForDay(day) : new Set();
+  const todayCompleted = workouts.find(w => w.workout_date === TODAY_DATE)?.completed ?? false;
+  const activeGroups = day && todayCompleted ? getMuscleGroupsForDay(day) : new Set();
 
   useEffect(() => {
     if (!active || !user || loading) return;
@@ -167,7 +174,38 @@ export default function DashPage({ active }) {
         setLoading(false);
       }
     }
+
+    async function loadAllTimeLogs() {
+      setLoadingPR(true);
+      try {
+        const { data: allWorkouts, error: awErr } = await db
+          .from('workouts')
+          .select('id, workout_date')
+          .eq('user_id', user.id);
+        if (awErr) throw awErr;
+
+        const ids = (allWorkouts || []).map(w => w.id);
+        if (!ids.length) { setAllTimeLogs([]); return; }
+
+        const { data: sets, error: sErr } = await db
+          .from('exercise_sets')
+          .select('exercise_name, carga, workout_id')
+          .in('workout_id', ids)
+          .eq('completed', true)
+          .not('carga', 'is', null);
+        if (sErr) throw sErr;
+
+        const dateMap = Object.fromEntries(allWorkouts.map(w => [w.id, w.workout_date]));
+        setAllTimeLogs((sets || []).map(s => ({ ...s, workout_date: dateMap[s.workout_id] })));
+      } catch (err) {
+        console.error('loadAllTimeLogs:', err);
+      } finally {
+        setLoadingPR(false);
+      }
+    }
+
     loadDashboard();
+    loadAllTimeLogs();
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [active, user]);
 
@@ -198,42 +236,50 @@ export default function DashPage({ active }) {
     <section id="page-dash" className="page active">
       <div className="dash-card">
         <div className="dash-card__title">Grupos trabalhados hoje</div>
-        <div className="dash-card__subtitle">{day ? day.foco : '–'}</div>
+        <div className="dash-card__subtitle">
+          {day ? (todayCompleted ? day.foco : `${day.foco} — treino ainda não concluído`) : '–'}
+        </div>
         <BodyAvatar activeGroups={activeGroups} />
       </div>
 
       <div className="dash-card">
-        <div className="dash-card__title">Volume total por treino</div>
-        <p className="dash-card__subtitle">Soma das cargas de todas as séries concluídas em cada treino</p>
+        <div className="dash-card__title">Soma de cargas por treino</div>
+        <p className="dash-card__subtitle">Soma do peso de todas as séries concluídas em cada treino (não considera repetições)</p>
         <div className="line-chart-wrap">
-          <LineChart
-            points={volumePoints}
-            valueSuffix="kg"
-            singleMsg={v => `1 treino registrado: ${v}kg — treine mais vezes para ver a evolução`}
-            emptyMsg="Nenhum volume registrado ainda. Marque séries como concluídas na aba Treino."
-          />
+          {loading ? <Skeleton height={130} /> : (
+            <LineChart
+              points={volumePoints}
+              valueSuffix="kg"
+              singleMsg={v => `1 treino registrado: ${v}kg — treine mais vezes para ver a evolução`}
+              emptyMsg="Nenhum volume registrado ainda. Marque séries como concluídas na aba Treino."
+            />
+          )}
         </div>
       </div>
 
       <div className="dash-card">
         <div className="dash-card__title">Últimos 35 dias</div>
-        <div className="heatmap-wrap">
-          <div className="heatmap-days">
-            <span>Seg</span><span>Ter</span><span>Qua</span>
-            <span>Qui</span><span>Sex</span><span>Sáb</span><span>Dom</span>
-          </div>
-          <Heatmap workouts={workouts} />
-        </div>
-        <div className="heatmap-legend">
-          <span className="heatmap-legend__dot heatmap-legend__dot--done" /><span>Concluído</span>
-          <span className="heatmap-legend__dot heatmap-legend__dot--miss" /><span>Não feito</span>
-          <span className="heatmap-legend__dot heatmap-legend__dot--none" /><span>Sem registro</span>
-        </div>
+        {loading ? <Skeleton height={140} /> : (
+          <>
+            <div className="heatmap-wrap">
+              <div className="heatmap-days">
+                <span>Seg</span><span>Ter</span><span>Qua</span>
+                <span>Qui</span><span>Sex</span><span>Sáb</span><span>Dom</span>
+              </div>
+              <Heatmap workouts={workouts} />
+            </div>
+            <div className="heatmap-legend">
+              <span className="heatmap-legend__dot heatmap-legend__dot--done" /><span>Concluído</span>
+              <span className="heatmap-legend__dot heatmap-legend__dot--miss" /><span>Não feito</span>
+              <span className="heatmap-legend__dot heatmap-legend__dot--none" /><span>Sem registro</span>
+            </div>
+          </>
+        )}
       </div>
 
       <div className="dash-card">
         <div className="dash-card__title">Treinos concluídos por semana</div>
-        <WeeklyBars workouts={workouts} />
+        {loading ? <Skeleton height={110} /> : <WeeklyBars workouts={workouts} />}
       </div>
 
       <div className="dash-card">
@@ -243,18 +289,20 @@ export default function DashPage({ active }) {
           {exercises.map(name => <option key={name} value={name}>{name}</option>)}
         </select>
         <div className="line-chart-wrap">
-          <LineChart
-            points={loadPoints}
-            valueSuffix="kg"
-            singleMsg={v => `1 registro: ${v}kg — treine mais vezes para ver a evolução`}
-            emptyMsg={selectedExercise ? 'Nenhum registro para este exercício' : 'Selecione um exercício com carga registrada'}
-          />
+          {loading ? <Skeleton height={130} /> : (
+            <LineChart
+              points={loadPoints}
+              valueSuffix="kg"
+              singleMsg={v => `1 registro: ${v}kg — treine mais vezes para ver a evolução`}
+              emptyMsg={selectedExercise ? 'Nenhum registro para este exercício' : 'Selecione um exercício com carga registrada'}
+            />
+          )}
         </div>
       </div>
 
       <div className="dash-card">
         <div className="dash-card__title">Recordes pessoais — maior carga</div>
-        <PRList logs={logs} />
+        {loadingPR ? <Skeleton height={100} /> : <PRList logs={allTimeLogs} />}
       </div>
     </section>
   );

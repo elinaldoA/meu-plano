@@ -1,8 +1,12 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { db } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { getWeekStart, calcStreak } from '../lib/utils';
+import { getWeekStart, calcStreak, fmtDate } from '../lib/utils';
+import { TODAY_DATE } from '../data/treinoData';
+import { fetchWeightLogs, upsertWeightLog } from '../lib/weightLog';
+import { saveAvatar, fetchAvatar } from '../lib/avatar';
+import LineChart from '../components/LineChart';
 
 function imcInfo(peso, altura) {
   if (!peso || !altura || peso < 30 || altura < 100) return null;
@@ -15,15 +19,52 @@ function imcInfo(peso, altura) {
   return { value: imc.toFixed(1), cls };
 }
 
+function metaProgress(pesoAtual, pesoAlvo, weightLogs) {
+  if (!pesoAtual || !pesoAlvo) return null;
+  const diff = pesoAtual - pesoAlvo;
+  if (Math.abs(diff) < 0.1) return { done: true, msg: '🎉 Meta de peso alcançada!' };
+
+  const first = weightLogs[0]?.peso ?? pesoAtual;
+  const totalSpan = Math.abs(first - pesoAlvo) || 1;
+  const covered = Math.abs(first - pesoAtual);
+  const pct = Math.max(0, Math.min(100, (covered / totalSpan) * 100));
+  const msg = `Faltam ${Math.abs(diff).toFixed(1)}kg para a meta de ${pesoAlvo}kg`;
+  return { done: false, pct, msg };
+}
+
 export default function PerfilPage({ active }) {
-  const { user, logout, updateProfile } = useAuth();
+  const { user, logout, updateProfile, updateEmail, updatePassword, deleteAccount } = useAuth();
   const toast = useToast();
 
   const md = user?.user_metadata || {};
   const [peso, setPeso] = useState(md.peso || localStorage.getItem('profile_peso') || '');
   const [altura, setAltura] = useState(md.altura || localStorage.getItem('profile_altura') || '');
   const [meta, setMeta] = useState(md.meta || localStorage.getItem('profile_meta') || 'massa');
+  const [pesoAlvo, setPesoAlvo] = useState(md.pesoAlvo || localStorage.getItem('profile_pesoAlvo') || '');
   const [stats, setStats] = useState({ total: '–', week: '–', streak: '–' });
+  const [weightLogs, setWeightLogs] = useState([]);
+  const [avatarData, setAvatarData] = useState(null);
+
+  const [newEmail, setNewEmail] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [accountOpen, setAccountOpen] = useState(false);
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  async function handleAvatarChange(e) {
+    const file = e.target.files?.[0];
+    e.target.value = '';
+    if (!file || !user) return;
+    setUploadingAvatar(true);
+    try {
+      const dataUrl = await saveAvatar(user.id, file);
+      setAvatarData(dataUrl);
+      toast('✅ Foto de perfil atualizada');
+    } catch (err) {
+      toast(`⚠️ ${err.message}`);
+    } finally {
+      setUploadingAvatar(false);
+    }
+  }
 
   useEffect(() => {
     if (!active || !user) return;
@@ -46,26 +87,92 @@ export default function PerfilPage({ active }) {
         setStats({ total, week: `${week}/5`, streak: streak > 0 ? `${streak}d` : '0d' });
       } catch (err) {
         console.error('loadProfileStats:', err);
+        toast('⚠️ Erro ao carregar estatísticas');
       }
     }
+
+    async function loadWeightLogs() {
+      try {
+        setWeightLogs(await fetchWeightLogs(user.id));
+      } catch (err) {
+        console.error('loadWeightLogs:', err);
+      }
+    }
+
+    async function loadAvatar() {
+      try {
+        setAvatarData(await fetchAvatar(user.id));
+      } catch (err) {
+        console.error('loadAvatar:', err);
+      }
+    }
+
     loadStats();
-  }, [active, user]);
+    loadWeightLogs();
+    loadAvatar();
+  }, [active, user, toast]);
 
   async function handleSave() {
     localStorage.setItem('profile_peso', peso);
     localStorage.setItem('profile_altura', altura);
     localStorage.setItem('profile_meta', meta);
-    await updateProfile({ peso, altura, meta });
+    localStorage.setItem('profile_pesoAlvo', pesoAlvo);
+    await updateProfile({ peso, altura, meta, pesoAlvo });
+
+    if (user && peso) {
+      try {
+        await upsertWeightLog(user.id, TODAY_DATE, parseFloat(peso));
+        setWeightLogs(await fetchWeightLogs(user.id));
+      } catch (err) {
+        console.error('upsertWeightLog:', err);
+      }
+    }
     toast('Perfil salvo!');
+  }
+
+  async function handleUpdateEmail() {
+    if (!newEmail) return;
+    const { error } = await updateEmail(newEmail);
+    if (error) return toast(`⚠️ ${error}`);
+    toast('✅ Confirme o e-mail enviado para a nova conta');
+    setNewEmail('');
+  }
+
+  async function handleUpdatePassword() {
+    if (!newPassword) return;
+    const { error } = await updatePassword(newPassword);
+    if (error) return toast(`⚠️ ${error}`);
+    toast('✅ Senha atualizada');
+    setNewPassword('');
+  }
+
+  async function handleDeleteAccount() {
+    if (!window.confirm('Isso apaga seus treinos e dados salvos e encerra a sessão. Continuar?')) return;
+    const { error } = await deleteAccount();
+    if (error) toast(`⚠️ ${error}`);
   }
 
   const since = user ? new Date(user.created_at) : null;
   const imc = imcInfo(parseFloat(peso), parseFloat(altura));
+  const progress = useMemo(
+    () => metaProgress(parseFloat(peso), parseFloat(pesoAlvo), weightLogs),
+    [peso, pesoAlvo, weightLogs]
+  );
+  const weightPoints = useMemo(
+    () => weightLogs.map(w => ({ label: fmtDate(w.log_date), value: w.peso })),
+    [weightLogs]
+  );
 
   return (
     <section id="page-perfil" className="page active">
       <div className="profile-hero">
-        <div className="profile-avatar">{user?.email?.[0]?.toUpperCase() || '?'}</div>
+        <label className={`profile-avatar${avatarData ? ' profile-avatar--photo' : ''}`}>
+          {avatarData
+            ? <img src={avatarData} alt="Foto de perfil" className="profile-avatar__img" />
+            : (user?.email?.[0]?.toUpperCase() || '?')}
+          <span className="profile-avatar__edit">{uploadingAvatar ? '…' : '📷'}</span>
+          <input type="file" accept="image/*" hidden disabled={uploadingAvatar} onChange={handleAvatarChange} />
+        </label>
         <div className="profile-hero__info">
           <div className="profile-email">{user?.email || '–'}</div>
           <div className="profile-since">
@@ -117,6 +224,25 @@ export default function PerfilPage({ active }) {
             <option value="saude">Saúde e bem-estar</option>
           </select>
         </div>
+        <div className="profile-field">
+          <label className="profile-field__label" htmlFor="profilePesoAlvo">Peso alvo (kg)</label>
+          <input
+            type="number" id="profilePesoAlvo" className="input input--sm" placeholder="Ex: 80"
+            min="30" max="300" step="0.1" value={pesoAlvo} onChange={e => setPesoAlvo(e.target.value)}
+          />
+        </div>
+        {progress && (
+          <div className="progress-card">
+            <div className="progress-card__row">
+              <span className="progress-card__label">{progress.msg}</span>
+            </div>
+            {!progress.done && (
+              <div className="progress-card__bar">
+                <div className="progress-card__fill" style={{ width: `${progress.pct}%` }} />
+              </div>
+            )}
+          </div>
+        )}
         {imc && (
           <div className="imc-card">
             <span className="imc-card__label">IMC</span>
@@ -127,7 +253,50 @@ export default function PerfilPage({ active }) {
         <button className="btn btn--primary btn--full" onClick={handleSave}>Salvar dados corporais</button>
       </div>
 
+      <div className="profile-section">
+        <div className="profile-section__title">Evolução do peso</div>
+        <div className="line-chart-wrap">
+          <LineChart
+            points={weightPoints}
+            valueSuffix="kg"
+            singleMsg={v => `1 registro: ${v}kg — salve seu peso novamente em outro dia para ver a evolução`}
+            emptyMsg="Nenhum peso registrado ainda. Salve seus dados corporais acima para começar."
+          />
+        </div>
+      </div>
+
+      <div className="profile-section">
+        <button
+          type="button"
+          className="profile-section__title"
+          onClick={() => setAccountOpen(o => !o)}
+        >
+          Conta {accountOpen ? '▲' : '▼'}
+        </button>
+        {accountOpen && (
+          <>
+            <div className="profile-field">
+              <label className="profile-field__label" htmlFor="newEmail">Novo e-mail</label>
+              <input
+                type="email" id="newEmail" className="input input--sm" placeholder={user?.email}
+                value={newEmail} onChange={e => setNewEmail(e.target.value)}
+              />
+              <button className="btn btn--outline btn--sm" onClick={handleUpdateEmail}>Atualizar e-mail</button>
+            </div>
+            <div className="profile-field">
+              <label className="profile-field__label" htmlFor="newPassword">Nova senha</label>
+              <input
+                type="password" id="newPassword" className="input input--sm" placeholder="Mínimo 6 caracteres"
+                value={newPassword} onChange={e => setNewPassword(e.target.value)}
+              />
+              <button className="btn btn--outline btn--sm" onClick={handleUpdatePassword}>Atualizar senha</button>
+            </div>
+          </>
+        )}
+      </div>
+
       <button className="btn btn--outline btn--full" onClick={logout}>Sair da conta</button>
+      <button className="btn btn--ghost btn--full" onClick={handleDeleteAccount}>Excluir conta</button>
     </section>
   );
 }
