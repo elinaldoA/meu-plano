@@ -801,8 +801,15 @@ button, input { font-family: inherit; }
 /* Avatar corporal */
 .body-avatar {
   display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 10px;
+}
+
+.body-avatar__figures {
+  display: flex;
   justify-content: center;
-  gap: 24px;
+  gap: 20px;
 }
 
 .body-avatar__col {
@@ -812,13 +819,20 @@ button, input { font-family: inherit; }
   gap: 6px;
 }
 
-.body-avatar__svg { width: 116px; height: auto; overflow: visible; }
+.body-avatar__svg { width: 106px; height: auto; overflow: visible; }
 
 .body-avatar__label {
   font-size: 0.66rem;
   color: var(--text-dim);
   text-transform: uppercase;
   letter-spacing: 0.4px;
+}
+
+.body-outline {
+  fill: var(--surface-2);
+  stroke: var(--border-2);
+  stroke-width: 1.4;
+  stroke-linejoin: round;
 }
 
 .muscle {
@@ -833,7 +847,7 @@ button, input { font-family: inherit; }
 
 .muscle--active {
   fill: var(--primary);
-  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--primary) 70%, transparent));
+  filter: drop-shadow(0 0 4px color-mix(in srgb, var(--primary) 70%, transparent));
   animation: musclePulse 2.6s ease-in-out infinite;
 }
 
@@ -842,6 +856,27 @@ button, input { font-family: inherit; }
   stroke-width: 1;
   opacity: 0.5;
   pointer-events: none;
+}
+
+.body-avatar__legend {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 0.64rem;
+  color: var(--text-dim);
+}
+
+.body-avatar__legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--surface-3);
+  border: 1px solid var(--border-2);
+}
+
+.body-avatar__legend-dot--active {
+  background: var(--primary);
+  border-color: var(--primary);
 }
 
 @keyframes musclePulse {
