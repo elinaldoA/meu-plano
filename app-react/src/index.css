@@ -812,7 +812,7 @@ button, input { font-family: inherit; }
   gap: 6px;
 }
 
-.body-avatar__svg { width: 100px; height: auto; }
+.body-avatar__svg { width: 116px; height: auto; overflow: visible; }
 
 .body-avatar__label {
   font-size: 0.66rem;
@@ -825,12 +825,29 @@ button, input { font-family: inherit; }
   fill: var(--surface-3);
   stroke: var(--border-2);
   stroke-width: 1;
-  transition: fill var(--t);
+  stroke-linejoin: round;
+  transition: fill var(--t), filter var(--t);
 }
 
 .muscle--fixed { fill: var(--surface-2); }
 
-.muscle--active { fill: var(--primary); }
+.muscle--active {
+  fill: var(--primary);
+  filter: drop-shadow(0 0 5px color-mix(in srgb, var(--primary) 70%, transparent));
+  animation: musclePulse 2.6s ease-in-out infinite;
+}
+
+.body-avatar__deco {
+  stroke: var(--border-2);
+  stroke-width: 1;
+  opacity: 0.5;
+  pointer-events: none;
+}
+
+@keyframes musclePulse {
+  0%, 100% { opacity: 1; }
+  50%      { opacity: 0.8; }
+}
 
 /* Heatmap */
 .heatmap-wrap { display: flex; flex-direction: column; gap: 3px; }
