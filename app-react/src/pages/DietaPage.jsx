@@ -1,19 +1,15 @@
-import { useEffect, useState } from 'react';
-import { macroData, dietaData, TODAY_DATE } from '../data/treinoData';
+import { useEffect, useMemo, useState } from 'react';
+import { dietaData, getMacroGoals, TODAY_DATE, WATER_STORAGE_KEY } from '../data/treinoData';
 import { useToast } from '../context/ToastContext';
 import { useAuth } from '../context/AuthContext';
 import { fetchMealLogs, upsertMealLog, fetchWaterLog, upsertWaterLog } from '../lib/dietaLog';
-
-const WATER_KEY = `agua_${TODAY_DATE}`;
-const waterGoalEntry = macroData.find(m => m.isWater);
-const WATER_GOAL_ML = waterGoalEntry ? parseFloat(waterGoalEntry.value) * 1000 : 3500;
 
 function mealKey(meal) {
   return `dieta_${TODAY_DATE}_${meal.nome}`;
 }
 
 function getWaterMl() {
-  return parseInt(localStorage.getItem(WATER_KEY), 10) || 0;
+  return parseInt(localStorage.getItem(WATER_STORAGE_KEY), 10) || 0;
 }
 
 function fmtLiters(ml) {
@@ -55,14 +51,14 @@ function MealCard({ meal, bump, user }) {
   );
 }
 
-function WaterTracker({ water, onAdd, onReset }) {
-  const pct = Math.min(100, (water / WATER_GOAL_ML) * 100);
+function WaterTracker({ water, goalMl, onAdd, onReset }) {
+  const pct = Math.min(100, (water / goalMl) * 100);
 
   return (
     <div className="progress-card">
       <div className="progress-card__row">
         <span className="progress-card__label">💧 Hidratação</span>
-        <span className="progress-card__count">{fmtLiters(water)}L / {fmtLiters(WATER_GOAL_ML)}L</span>
+        <span className="progress-card__count">{fmtLiters(water)}L / {fmtLiters(goalMl)}L</span>
       </div>
       <div className="progress-card__bar">
         <div className="progress-card__fill progress-card__fill--water" style={{ width: `${pct}%` }} />
@@ -82,6 +78,8 @@ export default function DietaPage() {
   const [tick, setTick] = useState(0);
   const bump = () => setTick(t => t + 1);
   const toast = useToast();
+  const macros = useMemo(() => getMacroGoals(user), [user]);
+  const waterGoalMl = macros.macroAgua * 1000;
 
   useEffect(() => {
     if (!user) return;
@@ -93,7 +91,7 @@ export default function DietaPage() {
           fetchWaterLog(user.id, TODAY_DATE),
         ]);
         meals.forEach(m => localStorage.setItem(`dieta_${TODAY_DATE}_${m.meal_name}`, m.completed));
-        if (waterMl !== null) localStorage.setItem(WATER_KEY, waterMl);
+        if (waterMl !== null) localStorage.setItem(WATER_STORAGE_KEY, waterMl);
         bump();
       } catch (err) {
         console.error('loadDietaLogs:', err);
@@ -122,9 +120,9 @@ export default function DietaPage() {
 
   function handleAddWater(deltaMl) {
     const next = Math.max(0, water + deltaMl);
-    localStorage.setItem(WATER_KEY, next);
+    localStorage.setItem(WATER_STORAGE_KEY, next);
     bump();
-    if (deltaMl > 0 && next >= WATER_GOAL_ML && water < WATER_GOAL_ML) {
+    if (deltaMl > 0 && next >= waterGoalMl && water < waterGoalMl) {
       toast('🎉 Meta de hidratação do dia atingida!');
     }
     if (user) upsertWaterLog(user.id, TODAY_DATE, next).catch(err => console.error('upsertWaterLog:', err));
@@ -132,7 +130,7 @@ export default function DietaPage() {
 
   function handleResetWater() {
     if (!window.confirm('Zerar a água registrada hoje?')) return;
-    localStorage.removeItem(WATER_KEY);
+    localStorage.removeItem(WATER_STORAGE_KEY);
     bump();
     if (user) upsertWaterLog(user.id, TODAY_DATE, 0).catch(err => console.error('resetWaterLog:', err));
   }
@@ -152,14 +150,24 @@ export default function DietaPage() {
         <p className="toolbar__hint">Marque as refeições feitas</p>
         <button className="btn btn--ghost btn--sm" onClick={handleReset}>Limpar</button>
       </div>
-      <WaterTracker water={water} onAdd={handleAddWater} onReset={handleResetWater} />
+      <WaterTracker water={water} goalMl={waterGoalMl} onAdd={handleAddWater} onReset={handleResetWater} />
       <div id="macrosGrid" className="macros">
-        {macroData.filter(m => !m.isWater).map(m => (
-          <div className="macro-card" key={m.label}>
-            <span className="macro-card__value">{m.value}</span>
-            <span className="macro-card__label">{m.label}</span>
-          </div>
-        ))}
+        <div className="macro-card">
+          <span className="macro-card__value">{macros.macroKcal}</span>
+          <span className="macro-card__label">Kcal</span>
+        </div>
+        <div className="macro-card">
+          <span className="macro-card__value">{macros.macroProteina}g</span>
+          <span className="macro-card__label">Proteína</span>
+        </div>
+        <div className="macro-card">
+          <span className="macro-card__value">{macros.macroCarboidrato}g</span>
+          <span className="macro-card__label">Carboidrato</span>
+        </div>
+        <div className="macro-card">
+          <span className="macro-card__value">{macros.macroGordura}g</span>
+          <span className="macro-card__label">Gordura</span>
+        </div>
       </div>
       <div id="dietaContainer" className="meals">
         {dietaData.map(meal => (

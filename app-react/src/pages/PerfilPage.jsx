@@ -6,6 +6,9 @@ import { getWeekStart, calcStreak, fmtDate } from '../lib/utils';
 import { TODAY_DATE } from '../data/treinoData';
 import { fetchWeightLogs, upsertWeightLog } from '../lib/weightLog';
 import { saveAvatar, fetchAvatar } from '../lib/avatar';
+import { DEFAULT_MACROS } from '../data/treinoData';
+import { isNotificationSupported } from '../lib/notifications';
+import { useReminders } from '../hooks/useReminders';
 import LineChart from '../components/LineChart';
 
 function imcInfo(peso, altura) {
@@ -41,9 +44,15 @@ export default function PerfilPage({ active }) {
   const [altura, setAltura] = useState(md.altura || localStorage.getItem('profile_altura') || '');
   const [meta, setMeta] = useState(md.meta || localStorage.getItem('profile_meta') || 'massa');
   const [pesoAlvo, setPesoAlvo] = useState(md.pesoAlvo || localStorage.getItem('profile_pesoAlvo') || '');
+  const [macroKcal, setMacroKcal] = useState(md.macroKcal || localStorage.getItem('profile_macroKcal') || '');
+  const [macroProteina, setMacroProteina] = useState(md.macroProteina || localStorage.getItem('profile_macroProteina') || '');
+  const [macroCarboidrato, setMacroCarboidrato] = useState(md.macroCarboidrato || localStorage.getItem('profile_macroCarboidrato') || '');
+  const [macroGordura, setMacroGordura] = useState(md.macroGordura || localStorage.getItem('profile_macroGordura') || '');
+  const [macroAgua, setMacroAgua] = useState(md.macroAgua || localStorage.getItem('profile_macroAgua') || '');
   const [stats, setStats] = useState({ total: '–', week: '–', streak: '–' });
   const [weightLogs, setWeightLogs] = useState([]);
   const [avatarData, setAvatarData] = useState(null);
+  const [remindersEnabled, toggleReminders] = useReminders(toast);
 
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -128,6 +137,16 @@ export default function PerfilPage({ active }) {
       }
     }
     toast('Perfil salvo!');
+  }
+
+  async function handleSaveMacros() {
+    localStorage.setItem('profile_macroKcal', macroKcal);
+    localStorage.setItem('profile_macroProteina', macroProteina);
+    localStorage.setItem('profile_macroCarboidrato', macroCarboidrato);
+    localStorage.setItem('profile_macroGordura', macroGordura);
+    localStorage.setItem('profile_macroAgua', macroAgua);
+    await updateProfile({ macroKcal, macroProteina, macroCarboidrato, macroGordura, macroAgua });
+    toast('🎯 Metas de macros salvas!');
   }
 
   async function handleUpdateEmail() {
@@ -254,6 +273,50 @@ export default function PerfilPage({ active }) {
       </div>
 
       <div className="profile-section">
+        <div className="profile-section__title">Metas de Macros</div>
+        <div className="profile-section__fields">
+          <div className="profile-field">
+            <label className="profile-field__label" htmlFor="macroKcal">Kcal</label>
+            <input
+              type="number" id="macroKcal" className="input input--sm" placeholder={String(DEFAULT_MACROS.macroKcal)}
+              min="0" step="10" value={macroKcal} onChange={e => setMacroKcal(e.target.value)}
+            />
+          </div>
+          <div className="profile-field">
+            <label className="profile-field__label" htmlFor="macroProteina">Proteína (g)</label>
+            <input
+              type="number" id="macroProteina" className="input input--sm" placeholder={String(DEFAULT_MACROS.macroProteina)}
+              min="0" step="5" value={macroProteina} onChange={e => setMacroProteina(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="profile-section__fields">
+          <div className="profile-field">
+            <label className="profile-field__label" htmlFor="macroCarboidrato">Carboidrato (g)</label>
+            <input
+              type="number" id="macroCarboidrato" className="input input--sm" placeholder={String(DEFAULT_MACROS.macroCarboidrato)}
+              min="0" step="5" value={macroCarboidrato} onChange={e => setMacroCarboidrato(e.target.value)}
+            />
+          </div>
+          <div className="profile-field">
+            <label className="profile-field__label" htmlFor="macroGordura">Gordura (g)</label>
+            <input
+              type="number" id="macroGordura" className="input input--sm" placeholder={String(DEFAULT_MACROS.macroGordura)}
+              min="0" step="5" value={macroGordura} onChange={e => setMacroGordura(e.target.value)}
+            />
+          </div>
+        </div>
+        <div className="profile-field">
+          <label className="profile-field__label" htmlFor="macroAgua">Meta de água (L)</label>
+          <input
+            type="number" id="macroAgua" className="input input--sm" placeholder={String(DEFAULT_MACROS.macroAgua)}
+            min="0" step="0.5" value={macroAgua} onChange={e => setMacroAgua(e.target.value)}
+          />
+        </div>
+        <button className="btn btn--primary btn--full" onClick={handleSaveMacros}>Salvar metas de macros</button>
+      </div>
+
+      <div className="profile-section">
         <div className="profile-section__title">Evolução do peso</div>
         <div className="line-chart-wrap">
           <LineChart
@@ -263,6 +326,23 @@ export default function PerfilPage({ active }) {
             emptyMsg="Nenhum peso registrado ainda. Salve seus dados corporais acima para começar."
           />
         </div>
+      </div>
+
+      <div className="profile-section">
+        <div className="profile-section__title">Notificações</div>
+        <div className="profile-field profile-field--row">
+          <label className="profile-field__label" htmlFor="remindersToggle">
+            Lembretes de refeição, treino e água (app aberto)
+          </label>
+          <input
+            type="checkbox" id="remindersToggle"
+            checked={remindersEnabled} onChange={toggleReminders}
+            disabled={!isNotificationSupported()}
+          />
+        </div>
+        {!isNotificationSupported() && (
+          <p className="dash-empty">Notificações não são suportadas neste navegador.</p>
+        )}
       </div>
 
       <div className="profile-section">

@@ -12,6 +12,7 @@ import DietaPage from './pages/DietaPage';
 import DashPage from './pages/DashPage';
 import PerfilPage from './pages/PerfilPage';
 import UpdatePrompt from './components/UpdatePrompt';
+import ReminderScheduler from './components/ReminderScheduler';
 
 function Shell() {
   const { user, authLoading } = useAuth();
@@ -26,6 +27,7 @@ function Shell() {
 
       {user && (
         <WorkoutProvider>
+          <ReminderScheduler />
           <div className="app-screen" style={{ display: 'flex' }}>
             <header className="topbar">
               <span className="topbar__brand">⚡ IRONFIT</span>

@@ -28,10 +28,10 @@ export function getDateForWeekday(dayName) {
   return toDateStr(d);
 }
 
-export function getWeekStart() {
+export function getWeekStart(weeksAgo = 0) {
   const now = new Date();
   const day = now.getDay();
-  const diff = now.getDate() - day + (day === 0 ? -6 : 1);
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1) - weeksAgo * 7;
   return toDateStr(new Date(now.getFullYear(), now.getMonth(), diff));
 }
 

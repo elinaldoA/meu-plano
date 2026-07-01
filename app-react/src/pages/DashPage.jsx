@@ -3,7 +3,7 @@ import { db } from '../lib/supabase';
 import { treinoData, TODAY_NAME, TODAY_DATE, getMuscleGroupsForDay } from '../data/treinoData';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { fmtDate, parseLocalDate, toDateStr } from '../lib/utils';
+import { fmtDate, parseLocalDate, toDateStr, getWeekStart } from '../lib/utils';
 import BodyAvatar from '../components/BodyAvatar';
 import LineChart from '../components/LineChart';
 
@@ -113,6 +113,56 @@ function PRList({ logs }) {
             <span className="pr-row__val">{val}kg</span>
             <span className="pr-row__date">{fmtDate(date)}</span>
           </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function WeekCompare({ logs, exercise }) {
+  const thisWeekStart = getWeekStart();
+  const lastWeekStart = getWeekStart(1);
+
+  const filtered = logs.filter(l => l.exercise_name === exercise && !isNaN(parseFloat(l.carga)));
+  const thisWeek = filtered.filter(l => l.workout_date >= thisWeekStart);
+  const lastWeek = filtered.filter(l => l.workout_date >= lastWeekStart && l.workout_date < thisWeekStart);
+  const bestThis = thisWeek.length ? Math.max(...thisWeek.map(l => parseFloat(l.carga))) : null;
+  const bestLast = lastWeek.length ? Math.max(...lastWeek.map(l => parseFloat(l.carga))) : null;
+
+  if (bestThis === null && bestLast === null) return null;
+
+  let diffMsg = null;
+  if (bestThis !== null && bestLast !== null) {
+    const delta = bestThis - bestLast;
+    if (delta > 0) diffMsg = `📈 +${delta.toFixed(1)}kg em relação à semana passada`;
+    else if (delta < 0) diffMsg = `📉 ${delta.toFixed(1)}kg em relação à semana passada`;
+    else diffMsg = '➡️ Mesma carga da semana passada';
+  }
+
+  return (
+    <div className="week-compare">
+      <div className="week-compare__row">
+        <span>Semana passada</span>
+        <strong>{bestLast !== null ? `${bestLast}kg` : '–'}</strong>
+      </div>
+      <div className="week-compare__row">
+        <span>Esta semana</span>
+        <strong>{bestThis !== null ? `${bestThis}kg` : '–'}</strong>
+      </div>
+      {diffMsg && <p className="week-compare__diff">{diffMsg}</p>}
+    </div>
+  );
+}
+
+function LoadHistory({ points }) {
+  if (!points.length) return null;
+  const reversed = [...points].slice().reverse();
+  return (
+    <div className="load-history">
+      {reversed.map((p, i) => (
+        <div className="load-history__row" key={`${p.label}-${i}`}>
+          <span className="load-history__date">{p.label}</span>
+          <span className="load-history__val">{p.value}kg</span>
         </div>
       ))}
     </div>
@@ -298,6 +348,8 @@ export default function DashPage({ active }) {
             />
           )}
         </div>
+        {!loading && selectedExercise && <WeekCompare logs={logs} exercise={selectedExercise} />}
+        {!loading && selectedExercise && <LoadHistory points={loadPoints} />}
       </div>
 
       <div className="dash-card">

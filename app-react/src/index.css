@@ -1213,6 +1213,56 @@ button, input { font-family: inherit; }
   100% { background-position: 0 50%; }
 }
 
+/* Week comparison */
+.week-compare {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+}
+
+.week-compare__row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 0.79rem;
+  color: var(--text-dim);
+  padding: 3px 0;
+}
+
+.week-compare__row strong {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.week-compare__diff {
+  margin: 6px 0 0;
+  font-size: 0.79rem;
+  font-weight: 600;
+  color: var(--text);
+}
+
+/* Load history */
+.load-history {
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border);
+  max-height: 220px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+
+.load-history__row {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 0;
+  border-bottom: 1px solid var(--border);
+  font-size: 0.79rem;
+}
+.load-history__row:last-child { border-bottom: none; }
+
+.load-history__date { color: var(--text-dim); }
+.load-history__val { font-weight: 700; color: var(--primary); }
+
 /* PR list */
 .pr-list { display: flex; flex-direction: column; }
 
@@ -1417,6 +1467,19 @@ button.profile-section__title {
   font-size: 0.7rem;
   color: var(--text-muted);
   font-weight: 600;
+}
+
+.profile-field--row {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.profile-field--row .profile-field__label {
+  font-size: 0.79rem;
+  color: var(--text);
+  font-weight: 500;
 }
 
 /* IMC card */

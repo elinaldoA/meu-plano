@@ -1,6 +1,7 @@
 export const DAY_NAMES = ['Domingo', 'Segunda', 'Terça', 'Quarta', 'Quinta', 'Sexta', 'Sábado'];
 export const TODAY_NAME = DAY_NAMES[new Date().getDay()];
 export const TODAY_DATE = new Date().toISOString().split('T')[0];
+export const WATER_STORAGE_KEY = `agua_${TODAY_DATE}`;
 
 export const treinoData = [
     { dia:'Segunda', foco:'Peito / Ombro / Tríceps', exercicios:[
@@ -82,13 +83,23 @@ export const treinoData = [
     ], pos:[]},
 ];
 
-export const macroData = [
-    { value:'2600',  label:'Kcal' },
-    { value:'200g',  label:'Proteína' },
-    { value:'290g',  label:'Carboidrato' },
-    { value:'70g',   label:'Gordura' },
-    { value:'3.5L',  label:'Água', isWater:true },
-];
+export const DEFAULT_MACROS = { macroKcal:2600, macroProteina:200, macroCarboidrato:290, macroGordura:70, macroAgua:3.5 };
+
+export function getMacroGoals(user) {
+    const md = user?.user_metadata || {};
+    function num(key, def) {
+        const raw = md[key] ?? localStorage.getItem(`profile_${key}`);
+        const n = parseFloat(raw);
+        return Number.isFinite(n) && n > 0 ? n : def;
+    }
+    return {
+        macroKcal: num('macroKcal', DEFAULT_MACROS.macroKcal),
+        macroProteina: num('macroProteina', DEFAULT_MACROS.macroProteina),
+        macroCarboidrato: num('macroCarboidrato', DEFAULT_MACROS.macroCarboidrato),
+        macroGordura: num('macroGordura', DEFAULT_MACROS.macroGordura),
+        macroAgua: num('macroAgua', DEFAULT_MACROS.macroAgua),
+    };
+}
 
 export const dietaData = [
     { horario:'07:30', nome:'☀️ Café da manhã',          descricao:'4 ovos inteiros + 3 claras (mexidos) · 40g aveia · 1 banana · 1 col. mel · Café preto' },
