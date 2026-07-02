@@ -2,10 +2,11 @@ import { useEffect, useMemo, useState } from 'react';
 import { db } from '../lib/supabase';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
+import { useAvatar } from '../context/AvatarContext';
 import { getWeekStart, calcStreak, fmtDate, getDisplayName } from '../lib/utils';
 import { TODAY_DATE } from '../data/treinoData';
 import { fetchWeightLogs, upsertWeightLog } from '../lib/weightLog';
-import { saveAvatar, fetchAvatar } from '../lib/avatar';
+import { saveAvatar } from '../lib/avatar';
 import { DEFAULT_MACROS, DEFAULT_WEEKLY_GOAL } from '../data/treinoData';
 import { isNotificationSupported } from '../lib/notifications';
 import { useReminders } from '../hooks/useReminders';
@@ -55,8 +56,8 @@ export default function PerfilPage({ active }) {
   const [weeklyGoal, setWeeklyGoal] = useState(md.weeklyGoal || localStorage.getItem('profile_weeklyGoal') || DEFAULT_WEEKLY_GOAL);
   const [stats, setStats] = useState({ total: '–', week: '–', streak: '–' });
   const [weightLogs, setWeightLogs] = useState([]);
-  const [avatarData, setAvatarData] = useState(null);
-  const [remindersEnabled, toggleReminders] = useReminders(toast);
+  const { avatarData, setAvatarData } = useAvatar();
+  const [remindersEnabled, toggleReminders] = useReminders(toast, user);
 
   const [newEmail, setNewEmail] = useState('');
   const [newPassword, setNewPassword] = useState('');
@@ -112,17 +113,8 @@ export default function PerfilPage({ active }) {
       }
     }
 
-    async function loadAvatar() {
-      try {
-        setAvatarData(await fetchAvatar(user.id));
-      } catch (err) {
-        console.error('loadAvatar:', err);
-      }
-    }
-
     loadStats();
     loadWeightLogs();
-    loadAvatar();
   }, [active, user, toast]);
 
   async function handleSavePersonal() {
